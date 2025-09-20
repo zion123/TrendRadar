@@ -15,7 +15,7 @@ import requests
 import yaml
 
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 # === 配置管理 ===
@@ -43,6 +43,7 @@ def load_config():
         "ENABLE_CRAWLER": config_data["crawler"]["enable_crawler"],
         "ENABLE_NOTIFICATION": config_data["notification"]["enable_notification"],
         "MESSAGE_BATCH_SIZE": config_data["notification"]["message_batch_size"],
+        "DINGTALK_BATCH_SIZE": config_data["notification"].get("dingtalk_batch_size", 20000),
         "BATCH_SEND_INTERVAL": config_data["notification"]["batch_send_interval"],
         "FEISHU_MESSAGE_SEPARATOR": config_data["notification"][
             "feishu_message_separator"
@@ -1508,6 +1509,7 @@ def render_html_content(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>热点新闻分析</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
         <style>
             * { box-sizing: border-box; }
             body { 
@@ -1533,6 +1535,33 @@ def render_html_content(
                 color: white;
                 padding: 32px 24px;
                 text-align: center;
+                position: relative;
+            }
+            
+            .save-btn {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                background: rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+                transition: all 0.2s ease;
+                backdrop-filter: blur(10px);
+            }
+            
+            .save-btn:hover {
+                background: rgba(255, 255, 255, 0.3);
+                border-color: rgba(255, 255, 255, 0.5);
+                transform: translateY(-1px);
+            }
+            
+            .save-btn:active {
+                transform: translateY(0);
             }
             
             .header-title {
@@ -1836,22 +1865,63 @@ def render_html_content(
                 font-family: 'SF Mono', Consolas, monospace;
             }
             
+            .footer {
+                margin-top: 32px;
+                padding: 20px 24px;
+                background: #f8f9fa;
+                border-top: 1px solid #e5e7eb;
+                text-align: center;
+            }
+            
+            .footer-content {
+                font-size: 13px;
+                color: #6b7280;
+                line-height: 1.4;
+            }
+            
+            .footer-link {
+                color: #4f46e5;
+                text-decoration: none;
+                font-weight: 500;
+                transition: color 0.2s ease;
+            }
+            
+            .footer-link:hover {
+                color: #7c3aed;
+                text-decoration: underline;
+            }
+            
+            .project-name {
+                font-weight: 600;
+                color: #374151;
+            }
+            
             @media (max-width: 480px) {
                 body { padding: 12px; }
                 .header { padding: 24px 20px; }
                 .content { padding: 20px; }
+                .footer { padding: 16px 20px; }
                 .header-info { grid-template-columns: 1fr; gap: 12px; }
                 .news-header { gap: 6px; }
                 .news-content { padding-right: 45px; }
                 .news-item { gap: 8px; }
                 .new-item { gap: 8px; }
                 .news-number { width: 20px; height: 20px; font-size: 12px; }
+                .save-btn {
+                    position: static;
+                    margin-bottom: 16px;
+                    display: block;
+                    width: fit-content;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
             }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
+                <button class="save-btn" onclick="saveAsImage()">保存为图片</button>
                 <div class="header-title">热点新闻分析</div>
                 <div class="header-info">
                     <div class="info-item">
@@ -2081,7 +2151,95 @@ def render_html_content(
 
     html += """
             </div>
+            
+            <div class="footer">
+                <div class="footer-content">
+                    由 <span class="project-name">TrendRadar</span> 生成 · 
+                    <a href="https://github.com/sansan0/TrendRadar" target="_blank" class="footer-link">
+                        GitHub 开源项目
+                    </a>
+                </div>
+            </div>
         </div>
+        
+        <script>
+            async function saveAsImage() {
+                const button = document.querySelector('.save-btn');
+                const originalText = button.textContent;
+                
+                try {
+                    button.textContent = '生成中...';
+                    button.disabled = true;
+                    window.scrollTo(0, 0);
+                    
+                    // 等待页面稳定
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    
+                    // 截图前隐藏按钮
+                    button.style.visibility = 'hidden';
+                    
+                    // 再次等待确保按钮完全隐藏
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                    const container = document.querySelector('.container');
+                    
+                    // 获取容器的精确位置和尺寸
+                    const rect = container.getBoundingClientRect();
+                    const computedStyle = window.getComputedStyle(container);
+                    
+                    const canvas = await html2canvas(container, {
+                        backgroundColor: '#ffffff',
+                        scale: 1.5,
+                        useCORS: true,
+                        allowTaint: false,
+                        imageTimeout: 10000,
+                        removeContainer: false,
+                        foreignObjectRendering: false,
+                        logging: false,
+                        width: container.offsetWidth,
+                        height: container.offsetHeight,
+                        x: 0,
+                        y: 0,
+                        scrollX: 0,
+                        scrollY: 0,
+                        windowWidth: window.innerWidth,
+                        windowHeight: window.innerHeight
+                    });
+                    
+                    button.style.visibility = 'visible';
+                    
+                    const link = document.createElement('a');
+                    const now = new Date();
+                    const filename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.png`;
+                    
+                    link.download = filename;
+                    link.href = canvas.toDataURL('image/png', 1.0);
+                    
+                    // 触发下载
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    button.textContent = '保存成功!';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+                    
+                } catch (error) {
+                    button.style.visibility = 'visible';
+                    button.textContent = '保存失败';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+                }
+            }
+            
+            document.addEventListener('DOMContentLoaded', function() {
+                window.scrollTo(0, 0);
+            });
+        </script>
     </body>
     </html>
     """
@@ -2273,10 +2431,16 @@ def split_content_into_batches(
     report_data: Dict,
     format_type: str,
     update_info: Optional[Dict] = None,
-    max_bytes: int = CONFIG["MESSAGE_BATCH_SIZE"],
+    max_bytes: int = None,
     mode: str = "daily",
 ) -> List[str]:
     """分批处理消息内容，确保词组标题+至少第一条新闻的完整性"""
+    if max_bytes is None:
+        if format_type == "dingtalk":
+            max_bytes = CONFIG.get("DINGTALK_BATCH_SIZE", 20000)
+        else:
+            max_bytes = CONFIG.get("MESSAGE_BATCH_SIZE", 4000)
+    
     batches = []
 
     total_titles = sum(
@@ -2289,6 +2453,11 @@ def split_content_into_batches(
         base_header = f"**总新闻数：** {total_titles}\n\n\n\n"
     elif format_type == "telegram":
         base_header = f"总新闻数： {total_titles}\n\n"
+    elif format_type == "dingtalk":
+        base_header = f"**总新闻数：** {total_titles}\n\n"
+        base_header += f"**时间：** {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        base_header += f"**类型：** 热点分析报告\n\n"
+        base_header += "---\n\n"
 
     base_footer = ""
     if format_type == "wework":
@@ -2299,6 +2468,10 @@ def split_content_into_batches(
         base_footer = f"\n\n更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
         if update_info:
             base_footer += f"\nTrendRadar 发现新版本 {update_info['remote_version']}，当前 {update_info['current_version']}"
+    elif format_type == "dingtalk":
+        base_footer = f"\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+        if update_info:
+            base_footer += f"\n> TrendRadar 发现新版本 **{update_info['remote_version']}**，当前 **{update_info['current_version']}**"
 
     stats_header = ""
     if report_data["stats"]:
@@ -2306,6 +2479,8 @@ def split_content_into_batches(
             stats_header = f"📊 **热点词汇统计**\n\n"
         elif format_type == "telegram":
             stats_header = f"📊 热点词汇统计\n\n"
+        elif format_type == "dingtalk":
+            stats_header = f"📊 **热点词汇统计**\n\n"
 
     current_batch = base_header
     current_batch_has_content = False
@@ -2370,6 +2545,17 @@ def split_content_into_batches(
                     word_header = f"📈 {sequence_display} {word} : {count} 条\n\n"
                 else:
                     word_header = f"📌 {sequence_display} {word} : {count} 条\n\n"
+            elif format_type == "dingtalk":
+                if count >= 10:
+                    word_header = (
+                        f"🔥 {sequence_display} **{word}** : **{count}** 条\n\n"
+                    )
+                elif count >= 5:
+                    word_header = (
+                        f"📈 {sequence_display} **{word}** : **{count}** 条\n\n"
+                    )
+                else:
+                    word_header = f"📌 {sequence_display} **{word}** : {count} 条\n\n"
 
             # 构建第一条新闻
             first_news_line = ""
@@ -2382,6 +2568,10 @@ def split_content_into_batches(
                 elif format_type == "telegram":
                     formatted_title = format_title_for_platform(
                         "telegram", first_title_data, show_source=True
+                    )
+                elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", first_title_data, show_source=True
                     )
                 else:
                     formatted_title = f"{first_title_data['title']}"
@@ -2420,6 +2610,10 @@ def split_content_into_batches(
                     formatted_title = format_title_for_platform(
                         "telegram", title_data, show_source=True
                     )
+                elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data, show_source=True
+                    )
                 else:
                     formatted_title = f"{title_data['title']}"
 
@@ -2447,6 +2641,8 @@ def split_content_into_batches(
                     separator = f"\n\n\n\n"
                 elif format_type == "telegram":
                     separator = f"\n\n"
+                elif format_type == "dingtalk":
+                    separator = f"\n---\n\n"
 
                 test_content = current_batch + separator
                 if (
@@ -2464,6 +2660,8 @@ def split_content_into_batches(
             new_header = (
                 f"\n\n🆕 本次新增热点新闻 (共 {report_data['total_new_count']} 条)\n\n"
             )
+        elif format_type == "dingtalk":
+            new_header = f"\n---\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
 
         test_content = current_batch + new_header
         if (
@@ -2485,6 +2683,8 @@ def split_content_into_batches(
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
             elif format_type == "telegram":
                 source_header = f"{source_data['source_name']} ({len(source_data['titles'])} 条):\n\n"
+            elif format_type == "dingtalk":
+                source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
 
             # 构建第一条新增新闻
             first_news_line = ""
@@ -2500,6 +2700,10 @@ def split_content_into_batches(
                 elif format_type == "telegram":
                     formatted_title = format_title_for_platform(
                         "telegram", title_data_copy, show_source=False
+                    )
+                elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data_copy, show_source=False
                     )
                 else:
                     formatted_title = f"{title_data_copy['title']}"
@@ -2538,6 +2742,10 @@ def split_content_into_batches(
                     formatted_title = format_title_for_platform(
                         "telegram", title_data_copy, show_source=False
                     )
+                elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data_copy, show_source=False
+                    )
                 else:
                     formatted_title = f"{title_data_copy['title']}"
 
@@ -2564,6 +2772,8 @@ def split_content_into_batches(
             failed_header = f"\n\n\n\n⚠️ **数据获取失败的平台：**\n\n"
         elif format_type == "telegram":
             failed_header = f"\n\n⚠️ 数据获取失败的平台：\n\n"
+        elif format_type == "dingtalk":
+            failed_header = f"\n---\n\n⚠️ **数据获取失败的平台：**\n\n"
 
         test_content = current_batch + failed_header
         if (
@@ -2579,7 +2789,11 @@ def split_content_into_batches(
             current_batch_has_content = True
 
         for i, id_value in enumerate(report_data["failed_ids"], 1):
-            failed_line = f"  • {id_value}\n"
+            if format_type == "dingtalk":
+                failed_line = f"  • **{id_value}**\n"
+            else:
+                failed_line = f"  • {id_value}\n"
+            
             test_content = current_batch + failed_line
             if (
                 len(test_content.encode("utf-8")) + len(base_footer.encode("utf-8"))
@@ -2735,41 +2949,78 @@ def send_to_dingtalk(
     proxy_url: Optional[str] = None,
     mode: str = "daily",
 ) -> bool:
-    """发送到钉钉"""
+    """发送到钉钉（支持分批发送）"""
     headers = {"Content-Type": "application/json"}
-
-    text_content = render_dingtalk_content(report_data, update_info, mode)
-
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "title": f"TrendRadar 热点分析报告 - {report_type}",
-            "text": text_content,
-        },
-    }
-
     proxies = None
     if proxy_url:
         proxies = {"http": proxy_url, "https": proxy_url}
 
-    try:
-        response = requests.post(
-            webhook_url, headers=headers, json=payload, proxies=proxies, timeout=30
+    # 获取分批内容，使用钉钉专用的批次大小
+    batches = split_content_into_batches(
+        report_data, 
+        "dingtalk", 
+        update_info, 
+        max_bytes=CONFIG.get("DINGTALK_BATCH_SIZE", 20000),
+        mode=mode
+    )
+
+    print(f"钉钉消息分为 {len(batches)} 批次发送 [{report_type}]")
+
+    # 逐批发送
+    for i, batch_content in enumerate(batches, 1):
+        batch_size = len(batch_content.encode("utf-8"))
+        print(
+            f"发送钉钉第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
         )
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("errcode") == 0:
-                print(f"钉钉通知发送成功 [{report_type}]")
-                return True
+
+        # 添加批次标识
+        if len(batches) > 1:
+            batch_header = f"**[第 {i}/{len(batches)} 批次]**\n\n"
+            # 将批次标识插入到适当位置（在标题之后）
+            if "📊 **热点词汇统计**" in batch_content:
+                batch_content = batch_content.replace(
+                    "📊 **热点词汇统计**\n\n",
+                    f"📊 **热点词汇统计** {batch_header}\n\n"
+                )
             else:
-                print(f"钉钉通知发送失败 [{report_type}]，错误：{result.get('errmsg')}")
+                # 如果没有统计标题，直接在开头添加
+                batch_content = batch_header + batch_content
+
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "title": f"TrendRadar 热点分析报告 - {report_type}",
+                "text": batch_content,
+            },
+        }
+
+        try:
+            response = requests.post(
+                webhook_url, headers=headers, json=payload, proxies=proxies, timeout=30
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("errcode") == 0:
+                    print(f"钉钉第 {i}/{len(batches)} 批次发送成功 [{report_type}]")
+                    # 批次间间隔
+                    if i < len(batches):
+                        time.sleep(CONFIG["BATCH_SEND_INTERVAL"])
+                else:
+                    print(
+                        f"钉钉第 {i}/{len(batches)} 批次发送失败 [{report_type}]，错误：{result.get('errmsg')}"
+                    )
+                    return False
+            else:
+                print(
+                    f"钉钉第 {i}/{len(batches)} 批次发送失败 [{report_type}]，状态码：{response.status_code}"
+                )
                 return False
-        else:
-            print(f"钉钉通知发送失败 [{report_type}]，状态码：{response.status_code}")
+        except Exception as e:
+            print(f"钉钉第 {i}/{len(batches)} 批次发送出错 [{report_type}]：{e}")
             return False
-    except Exception as e:
-        print(f"钉钉通知发送出错 [{report_type}]：{e}")
-        return False
+
+    print(f"钉钉所有 {len(batches)} 批次发送完成 [{report_type}]")
+    return True
 
 
 def send_to_wework(
